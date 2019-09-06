@@ -66,11 +66,11 @@ var History = class History {
     }
 
     loadHistory() {
-        let path = GLib.build_filenamev([GLib.get_home_dir(), '.dict_history.json']);
+        let path = GLib.build_filenamev([GLib.get_home_dir(), '.cache', 'dict_history.json']);
         this.historyFile = Util.openFile(path);
         this.history = Util.loadJSON(this.historyFile);
 
-        path = GLib.build_filenamev([GLib.get_home_dir(), '.dict_delete.json']);
+        path = GLib.build_filenamev([GLib.get_home_dir(), '.cache', '.dict_delete.json']);
         this.deleteFile = Util.openFile(path);
         this.deleteWords = Util.loadJSON(this.deleteFile);
 
