@@ -54,6 +54,7 @@ const TRIGGER_STATE = 'trigger-state';
 const WINDOW_WIDTH = 'window-width';
 const WINDOW_HEIGHT = 'window-height';
 const ADDRESS_ACTIVE = 'address-active';
+const USERSCRIPT_ACTIVE = 'userscript-active';
 const ENABLE_JAVASCRIPT = 'enable-javascript';
 const LOAD_IMAGE = 'load-image';
 const TOP_ICON = 'top-icon';
@@ -105,6 +106,10 @@ class Dict {
         this.url = this._gsettings.get_string(ADDRESS_ACTIVE);
         this.addressId = this._gsettings.connect("changed::" + ADDRESS_ACTIVE,
                                                   () => { this.url = this._gsettings.get_string(ADDRESS_ACTIVE); });
+
+        this.userScript = this._gsettings.get_string(USERSCRIPT_ACTIVE);
+        this.scriptId = this._gsettings.connect("changed::" + USERSCRIPT_ACTIVE,
+                                                  () => { this.userScript = this._gsettings.get_string(USERSCRIPT_ACTIVE); });
 
         this.enableWeb = this._gsettings.get_boolean(ENABLE_WEB);
         this.enableWebId = this._gsettings.connect("changed::" + ENABLE_WEB,
@@ -338,7 +343,14 @@ class Dict {
         this.words = words;
 
         if (this.enableWeb && oldWord != words) {
-            this.web_view.load_uri(this._getUrl(this.words));
+            if(this.userScript != ""){
+                let process = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE);
+                let subp = process.spawnv(['/usr/bin/xidel', '--output-format=html', '-se', this.userScript, this._getUrl(this.words)]);
+                let result = subp.communicate(null, null)[1];
+                this.web_view.load_html(imports.byteArray.toString(result.get_data()), null);
+            } else {
+                this.web_view.load_uri(this._getUrl(this.words));
+            }
             if (addToHistory)
                 this.history.addWord(words);
         }

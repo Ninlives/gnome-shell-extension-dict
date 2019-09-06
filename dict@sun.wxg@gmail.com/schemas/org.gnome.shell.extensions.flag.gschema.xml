@@ -48,9 +48,21 @@
       <description>
       </description>
     </key>
+    <key name="userscript-list" type="as">
+      <default>[]</default>
+      <summary>UserScript list</summary>
+      <description>
+      </description>
+    </key>
     <key name="address-active" type="s">
       <default>"https://translate.google.com/#view=home&amp;op=translate&amp;sl=auto&amp;tl=auto&amp;text=%WORD"</default>
       <summary>Active address</summary>
+      <description>
+      </description>
+    </key>
+    <key name="userscript-active" type="s">
+      <default>""</default>
+      <summary>Active userScript</summary>
       <description>
       </description>
     </key>

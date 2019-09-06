@@ -7,7 +7,9 @@ const LANGUAGES_LIST = Me.imports.language.LANGUAGES_LIST;
 
 const SCHEMA_NAME = 'org.gnome.shell.extensions.dict';
 const ADDRESS_LIST = 'address-list';
+const USERSCRIPT_LIST = 'userscript-list';
 const ADDRESS_ACTIVE = 'address-active';
+const USERSCRIPT_ACTIVE = 'userscript-active';
 const ENABLE_JAVASCRIPT = 'enable-javascript';
 const LOAD_IMAGE = 'load-image';
 const TOP_ICON = 'top-icon';
@@ -165,7 +167,7 @@ class buildUi {
     }
 
     addClicked() {
-        this.addressListBox.add(this.addressRow('http://', false));
+        this.addressListBox.add(this.addressRow('http://', '', false));
         this.addressListBox.show_all();
     }
 
@@ -174,18 +176,17 @@ class buildUi {
         addressBox.add(this.addGoogleTranslate());
 
         ADDRESS.forEach( (a) => {
-            addressBox.add(this.addressRow(a, true));
+            addressBox.add(this.addressRow(a, '', true));
         });
 
-        let addressList = [];
-        gsettings.get_strv(ADDRESS_LIST).forEach( (a) => {
-            if (a != "")
-                addressList.push(a);
-        });
+        let talist = gsettings.get_strv(ADDRESS_LIST);
+        let tulist = gsettings.get_strv(USERSCRIPT_LIST);
 
-        addressList.forEach( (a) => {
-            addressBox.add(this.addressRow(a, false));
-        });
+        for(let i = 0; i < talist.length; i++){
+            if(talist[i] != ""){
+                addressBox.add(this.addressRow(talist[i], tulist[i], false));
+            }
+        }
 
         return addressBox;
     }
@@ -214,7 +215,7 @@ class buildUi {
         return url;
     }
 
-    addressRow(address, isDefault) {
+    addressRow(address, script, isDefault) {
         let hbox = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL, margin_top: 10});
 
         let radioButton = new Gtk.RadioButton({ group: this.radioGroup });
@@ -233,6 +234,11 @@ class buildUi {
             entry.connect('changed', this.addressUpdate.bind(this));
             hbox.pack_start(entry, true, true, 10);
 
+            let entry_script = new Gtk.Entry({});
+            entry_script.set_text(script);
+            entry_script.connect('changed', this.addressUpdate.bind(this));
+            hbox.pack_start(entry_script, true, true, 10);
+
             let remove = new Gtk.Button();
             remove.set_label("Remove");
             remove.hbox = hbox;
@@ -250,25 +256,37 @@ class buildUi {
 
     addressUpdate() {
         let addressList = [];
+        let scriptList = [];
         let addressActive = '';
+        let scriptActive = '';
         let rows = this.addressListBox.get_children();
         rows.forEach( (row) => {
-            let [radio, entry] = row.get_children();
+            let [radio, entry, entry_script] = row.get_children();
             let link = entry.get_text();
+            let script = '';
+            if(entry_script){
+                script = entry_script.get_text();
+            }
             if (!radio.isDefault) {
                 addressList.push(link);
+                scriptList.push(script);
             }
 
             if (radio.active) {
-                if (radio.google)
+                if (radio.google){
                     addressActive = this.googleTranslateUrl();
-                else
+                    scriptActive = '';
+                } else {
                     addressActive = link;
+                    scriptActive = script;
+                }
             }
         });
 
         gsettings.set_strv(ADDRESS_LIST, addressList);
+        gsettings.set_strv(USERSCRIPT_LIST, scriptList);
         gsettings.set_string(ADDRESS_ACTIVE, addressActive);
+        gsettings.set_string(USERSCRIPT_ACTIVE, scriptActive);
     }
 
     addBoldTextToBox(text, box) {
