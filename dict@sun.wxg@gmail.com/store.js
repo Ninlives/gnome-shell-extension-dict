@@ -6,7 +6,7 @@ const Util = imports.util;
 
 var Store = class Store {
     constructor() {
-        let path = GLib.build_filenamev([GLib.get_home_dir(), '.dict_store.json.gz']);
+        let path = GLib.build_filenamev([GLib.get_home_dir(), '.cache', 'dict_store.json.gz']);
         this.dbFile = Util.openFile(path);
         this.db = Util.loadJSONfromZip(this.dbFile);
     }
