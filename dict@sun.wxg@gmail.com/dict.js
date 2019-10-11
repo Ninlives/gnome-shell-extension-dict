@@ -10,6 +10,7 @@ const Webkit = imports.gi.WebKit2;
 imports.searchPath.push(GLib.path_get_dirname(System.programInvocationName));
 const Util = imports.util;
 const History = imports.history.History;
+const Store = imports.store.Store;
 
 const WEB_SITE = 'https://translate.google.com/#view=home&op=translate&sl=auto&tl=auto&text=%WORD';
 
@@ -167,12 +168,14 @@ class Dict {
         this.history = new History();
         hbox.pack1(this.history.historyBox, false, false);
         this.history.connect("selectChanged", this.historySelectChanged.bind(this));
+        this.history.connect("deleteWord", this.historyDeleteWord.bind(this));
 
         this.notebook = new Gtk.Notebook({});
         hbox.pack2(this.notebook, true, false);
 
         this.window.add(this.builder.get_object('vertical_box'));
 
+        this.store = new Store();
         this.createTranslateView();
         this._updateNoteBook();
     }
@@ -241,6 +244,10 @@ class Dict {
         this._translateWords(word, null, null, false);
     }
 
+    historyDeleteWord(history, word) {
+        this.store.removeWord(word);
+    }
+
     windowSizeChanged() {
         let [width, height] = this.window.get_size();
         if (this.width != width || this.height != height) {
@@ -265,7 +272,21 @@ class Dict {
     }
 
     configOpen() {
-        GLib.spawn_command_line_async('gnome-shell-extension-prefs ' + 'dict@sun.wxg@gmail.com');
+        //GLib.spawn_command_line_async('gnome-shell-extension-prefs ' + 'dict@sun.wxg@gmail.com');
+
+        this.hideDict();
+
+        let [, argv] = GLib.shell_parse_argv('gnome-shell-extension-prefs ' + 'dict@sun.wxg@gmail.com');
+
+        //GLib.spawn_sync(null, argv, null,
+                        //GLib.SpawnFlags.SEARCH_PATH,
+                        //null);
+
+        let [success, pid] = GLib.spawn_async(null, argv, null,
+                                              GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD,
+                                              null);
+        if (success)
+            GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, () => { this.hideDict(); });
     }
 
     _mouseMotion(widget, event) {
@@ -287,7 +308,17 @@ class Dict {
         return url;
     }
 
-    _shellTranslateWord(word) {
+    _shellTranslateWord() {
+        let word = this.words.replace(/[^a-zA-Z\-]/g, ' ')
+        word = word.split(' ');
+        word = word[0].toLowerCase();
+        let index = this.store.findInDB(word);
+        if (index != null) {
+            let text = this.store.getText(index);
+            this.shell.set_markup(text);
+            return;
+        }
+
         let cmd = "trans -t " + this.language + " --show-languages n --no-ansi " + word;
         try {
             let [result, stdout, stderr, status] = GLib.spawn_command_line_sync(cmd);
@@ -295,7 +326,7 @@ class Dict {
             let text = Utf8ArrayToStr(stdout);
 
             this.shell.set_markup(text);
-
+            this.store.addWord(word, text);
         } catch (e) {
             this.shell.set_text("Error: " + e.message);
         }
@@ -310,17 +341,18 @@ class Dict {
 
         let label;
         if (this.enableTransShell) {
-            label =new Gtk.Label();
+            label = new Gtk.Label();
             label.set_text('translate shell');
             this.notebook.append_page(this.shell.scroll_window, label);
             this.notebook.child_set_property(this.shell.scroll_window, 'tab-expand', true);
         }
 
         if (this.enableWeb) {
-            label =new Gtk.Label();
+            label = new Gtk.Label();
             label.set_text('web');
             this.notebook.append_page(this.web_view, label);
             this.notebook.child_set_property(this.web_view, 'tab-expand', true);
+            this.web_view.set_can_focus(this.enableTransShell ? false : true);
         }
 
         if (this.notebook.get_n_pages() < 1) {
@@ -356,7 +388,17 @@ class Dict {
         }
 
         if (this.enableTransShell)
-            this._shellTranslateWord(words);
+            this._shellTranslateWord();
+        else {
+            let id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
+                this._shellTranslateWord();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
+
+        if (addToHistory) {
+            this.history.addWord(words);
+        }
 
         this.notebook.prev_page();
         this.window.show_all();
