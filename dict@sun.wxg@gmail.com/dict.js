@@ -1,5 +1,8 @@
 #!/usr/bin/gjs
 
+imports.gi.versions.Gio = '2.0';
+imports.gi.versions.Gtk = '3.0';
+
 const Gtk = imports.gi.Gtk;
 const Gdk = imports.gi.Gdk;
 const Gio = imports.gi.Gio;
@@ -41,7 +44,9 @@ const DictIface = '<node> \
     <arg type="i" direction="in"/> \
 </method> \
 <method name="closeDict"/> \
-<method name="hideDict"/> \
+<method name="hideDict"> \
+    <arg type="s" direction="in"/> \
+</method> \
 <signal name="windowSizeChanged"> \
     <arg type="u"/> \
     <arg type="u"/> \
@@ -189,15 +194,17 @@ class Dict {
         scroll_window.add(this.shell);
         this.shell.scroll_window = scroll_window;
 
-        let manager = new Webkit.WebsiteDataManager({base_cache_directory: '/dev/null',
-                                                     base_data_directory: '/dev/null',
-                                                     disk_cache_directory: '/dev/null',
-                                                     indexeddb_directory: '/dev/null',
-                                                     local_storage_directory: '/dev/null',
-                                                     offline_application_cache_directory: '/dev/null',
-                                                     websql_directory: '/dev/null' });
+        let cacheDir = '/run/dict';
+        let manager = new Webkit.WebsiteDataManager({base_cache_directory:                cacheDir,
+                                                     base_data_directory:                 cacheDir,
+                                                     disk_cache_directory:                cacheDir,
+                                                     indexeddb_directory:                 cacheDir,
+                                                     local_storage_directory:             cacheDir,
+                                                     offline_application_cache_directory: cacheDir,
+                                                     websql_directory:                    cacheDir});
 
         let context = Webkit.WebContext.new_with_website_data_manager(manager);
+        context.get_cookie_manager().set_accept_policy(Webkit.CookieAcceptPolicy.ALWAYS);
         this.web_view = Webkit.WebView.new_with_context(context);
         let settings = this.web_view.get_settings();
         settings.set_enable_page_cache(false);
@@ -274,7 +281,7 @@ class Dict {
     configOpen() {
         //GLib.spawn_command_line_async('gnome-shell-extension-prefs ' + 'dict@sun.wxg@gmail.com');
 
-        this.hideDict();
+        this.hideDict(null);
 
         let [, argv] = GLib.shell_parse_argv('gnome-shell-extension-prefs ' + 'dict@sun.wxg@gmail.com');
 
@@ -286,7 +293,7 @@ class Dict {
                                               GLib.SpawnFlags.SEARCH_PATH | GLib.SpawnFlags.DO_NOT_REAP_CHILD,
                                               null);
         if (success)
-            GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, () => { this.hideDict(); });
+            GLib.child_watch_add(GLib.PRIORITY_DEFAULT, pid, () => { this.hideDict(null); });
     }
 
     _mouseMotion(widget, event) {
@@ -367,12 +374,13 @@ class Dict {
     }
 
     translateWords(words, x, y) {
+        this.searchEntry.set_text("");
         this._translateWords(words, x, y, true);
     }
 
     _translateWords(words, x, y, addToHistory = true) {
         let oldWord = this.words;
-        this.words = words;
+        this.words = words == "" ? 'welcome' : words;
 
         if (this.enableWeb && oldWord != words) {
             if(this.userScript != ""){
@@ -425,13 +433,18 @@ class Dict {
         this.application.quit();
     }
 
-    hideDict() {
+    hideDict(text) {
         if (this.active) {
             this.active = false;
             this.historyButton.set_active(false);
             this.window.hide();
         } else {
-            this._translateWords(this.words, null, null, false);
+            if (this.searchEntry.visible) {
+                this.searchEntry.set_text("");
+                this.searchEntry.grab_focus_without_selecting();
+            }
+            let words = text ? text : "";
+            this._translateWords(words, null, null, false);
         }
     }
 };

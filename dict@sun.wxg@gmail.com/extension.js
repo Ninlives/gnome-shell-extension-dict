@@ -37,6 +37,8 @@ const ADDRESS_ACTIVE = 'address-active';
 const ENABLE_JAVASCRIPT = 'enable-javascript';
 const LOAD_IMAGE = 'load-image';
 const TOP_ICON = 'top-icon';
+const WINDOW_FOLLOW_POINTER = 'window-follow-pointer';
+const SHOW_POPUP_WINDOW = 'hotkey-popup-window';
 
 const BUS_NAME = 'org.gnome.Dict';
 const OBJECT_PATH = '/org/gnome/Dict';
@@ -57,7 +59,9 @@ const DictIface = '<node> \
     <arg type="i" direction="in"/> \
 </method> \
 <method name="closeDict"/> \
-<method name="hideDict"/> \
+<method name="hideDict"> \
+    <arg type="s" direction="in"/> \
+</method> \
 <signal name="windowSizeChanged"> \
     <arg type="u"/> \
     <arg type="u"/> \
@@ -94,12 +98,19 @@ class Flag {
         this.dictProxy.connectSignal('windowSizeChanged', this.windowSizeChanged.bind(this));
 
         this._gsettings = Convenience.getSettings(DICT_SCHEMA);
+
+        this.windowFollowPointer = this._gsettings.get_boolean(WINDOW_FOLLOW_POINTER);
+        this.windowFollowPointerID = this._gsettings.connect("changed::" + WINDOW_FOLLOW_POINTER, () => {
+            this.windowFollowPointer = this._gsettings.get_boolean(WINDOW_FOLLOW_POINTER);
+        });
+
         this.addressListId = this._gsettings.connect("changed::" + ADDRESS_ACTIVE,
                                                      this.updateLink.bind(this));
         this.addressListId = this._gsettings.connect("changed::" + ENABLE_JAVASCRIPT,
                                                      this.updateLink.bind(this));
         this.addressListId = this._gsettings.connect("changed::" + LOAD_IMAGE,
                                                      this.updateLink.bind(this));
+
         try {
             this.dbusProxy.GetNameOwnerSync('org.gnome.Dict');
         } catch (e) {
@@ -120,7 +131,7 @@ class Flag {
         let icon = new St.Icon({ gicon: gicon,
                                  icon_size: 32 });
 
-        let button= new St.Button({ style_class: 'window-button',
+        let button= new St.Button({ style_class: 'panel-button',
                                     reactive: true,
                                     can_focus: true,
                                     track_hover: true,
@@ -130,8 +141,8 @@ class Flag {
 
         Main.layoutManager.addChrome(this.actor);
 
-        this.text = null;
-        this.oldText = null;
+        this.text = "welcome";
+        this.oldText = "welcome";
 
         this.checkStClipboardId = 0;
         this.checkClipboardId = 0;
@@ -157,6 +168,21 @@ class Flag {
             this.checkClipboardId = this.clipboard.connect("owner-change", this.checkClipboard.bind(this));
         }
 */
+
+        this.windowCenter = false;
+
+        this.windowCreatedId = global.display.connect('window-created', (display, window) => {
+            if (window.title == 'Dict')
+                this.moveWindow(window);
+        });
+
+        this.restackedId = global.display.connect('restacked', () => {
+            let windows = global.display.get_tab_list(Meta.TabList.NORMAL_ALL, null);
+            for (let i = 0; i < windows.length; i++) {
+                if (windows[i].title == 'Dict')
+                    this.moveWindow(windows[i]);
+            }
+        });
 
         this.removeNotificaionId = global.display.connect('window-demands-attention',
                                                           this._onWindowDemandsAttention.bind(this));
@@ -221,26 +247,29 @@ class Flag {
             return;
         }
 
+        this.windowCenter = false;
         let [x, y, mod] =global.get_pointer();
         this.dictProxy.translateWordsRemote(this.text, x, y);
-
-        let id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, this.moveWindow.bind(this));
-        GLib.Source.set_name_by_id(id, 'dict moveWindow');
     }
 
-    moveWindow() {
-        let currentWorkspace = this.getWM().get_active_workspace();
-        let windows = global.display.get_tab_list(Meta.TabList.NORMAL_ALL, null);
-        for (let i = 0; i < windows.length; i++) {
-            if (windows[i].title == 'Dict' && windows[i].has_focus()) {
-                windows[i].change_workspace(currentWorkspace);
-                let [x, y] = this.moveToPosition(windows[i]);
-                windows[i].move_frame(true, x, y);
-                return GLib.SOURCE_REMOVE;
-            }
-        }
+    moveWindow(window) {
+        if (!this.windowFollowPointer)
+            return;
 
-        return GLib.SOURCE_CONTINUE;
+        let currentWorkspace = this.getWM().get_active_workspace();
+        window.change_workspace(currentWorkspace);
+        let [x, y] = this.windowCenter ? this.moveToCenter(window) : this.moveToPosition(window);
+        window.move_frame(false, x, y);
+    }
+
+    moveToCenter(window) {
+        let workarea = window.get_work_area_current_monitor();
+        let frame = window.get_frame_rect();
+
+        let windowX = workarea.x + (workarea.width / 2) - (frame.width / 2);
+        let windowY = workarea.y + (workarea.height / 2) - (frame.height / 2);
+
+        return [Math.floor(windowX), Math.floor(windowY)];
     }
 
     moveToPosition(window) {
@@ -265,7 +294,7 @@ class Flag {
             windowY = workarea.y + workarea.height - frame.height;
         }
 
-        return [windowX, Math.floor(windowY)];
+        return [Math.floor(windowX), Math.floor(windowY)];
     }
 
     createDict() {
@@ -313,12 +342,12 @@ class Flag {
         } catch (e) {
             this.createDict();
             Mainloop.timeout_add(1000, () => {
-                this.dictProxy.hideDictRemote();
+                this.dictProxy.hideDictRemote(this.text);
                 return GLib.SOURCE_REMOVE});
             return;
         }
 
-        this.dictProxy.hideDictRemote();
+        this.dictProxy.hideDictRemote(this.text);
     }
 
     updateLink() {
@@ -345,6 +374,16 @@ class Flag {
                               () => { this.trigger = !this.trigger;
                                       this._gsettings.set_boolean(TRIGGER_STATE, this.trigger);
                               });
+        Main.wm.addKeybinding(SHOW_POPUP_WINDOW,
+                              this._gsettings,
+                              Meta.KeyBindingFlags.NONE,
+                              ModeType.ALL,
+                              () => {
+                                  if (this.text == null)
+                                      this.text = "";
+                                  this.windowCenter = true;
+                                  this.hideDict();
+                              });
     }
 
     getWM() {
@@ -356,6 +395,7 @@ class Flag {
 
     destroy(){
         Main.wm.removeKeybinding(HOTKEY);
+        Main.wm.removeKeybinding(SHOW_POPUP_WINDOW);
 
         if (this._flagWatchId) {
             Mainloop.source_remove(this._flagWatchId);
@@ -372,13 +412,25 @@ class Flag {
             Mainloop.source_remove(this.checkStClipboardId);
             this.checkStClipboardId = 0;
         }
+        if (this.windowCreatedId != 0) {
+            global.display.disconnect(this.windowCreatedId);
+            this.windowCreatedId = 0;
+        }
+        if (this.restackedId != 0) {
+            global.display.disconnect(this.restackedId);
+            this.restackedId = 0;
+        }
         if (this.removeNotificaionId != 0) {
             global.display.disconnect(this.removeNotificaionId);
             this.removeNotificaionId = 0;
         }
-        if (this.addressListId !=0) {
+        if (this.addressListId != 0) {
             this._gsettings.disconnect(this.addressListId);
             this.addressListId = 0;
+        }
+        if (this.windowFollowPointerID != 0) {
+            this._gsettings.disconnect(this.windowFollowPointerID);
+            this.windowFollowPointerID = 0;
         }
 
         try {
@@ -386,7 +438,7 @@ class Flag {
         } catch (e) {
             return;
         }
-        this.dictProxy.closeDictRemote();
+        //this.dictProxy.closeDictRemote();
     }
 }
 
@@ -432,6 +484,7 @@ class MenuButton extends PanelMenu.Button {
     }
 
     _onButtonPress(actor, event) {
+        flag.windowCenter = true;
         flag.hideDict();
     }
 
@@ -447,8 +500,6 @@ let flag;
 let menuButton;
 
 function init(metadata) {
-    let theme = imports.gi.Gtk.IconTheme.get_default();
-    theme.append_search_path(metadata.path + '/icons');
 }
 
 function enable() {
